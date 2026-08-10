@@ -14,10 +14,16 @@
 <meta property="og:description" content="Track every Fortnite sprite, variant, level & mastery. Free, runs in your browser, no account. Your progress saves on your own device.">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
-<!-- 🔧 REPLACE "qclayton15.github.io/sprite-locker" below with your real hosted URL (e.g. https://quentin.github.io/sprite-locker) so Discord shows the preview banner. Upload preview.png next to this file. -->
-<meta property="og:url" content="https://qclayton15.github.io/sprite-locker/">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sprite Locker">
+<!-- After you host this, fill these in with your public URL for a rich Discord/Twitter preview:
+<meta property="og:url" content="https://qclayton15.github.io/sprite-locker">
 <meta property="og:image" content="https://qclayton15.github.io/sprite-locker/preview.png">
-<meta name="twitter:image" content="https://qclayton15.github.io/sprite-locker/preview.png">
+<meta name="twitter:image" content="https://qclayton15.github.io/sprite-locker/preview.png"> -->
 
 <style>
   :root{
@@ -541,6 +547,7 @@
     </div>
     <div class="grow"></div>
     <div class="toolbtns">
+      <button class="sm primary" id="btnInstall" style="display:none">⬇ Install App</button>
       <button class="sm" id="btnImages">🖼 Images</button>
       <button class="sm" id="btnSync">🔑 Backup</button>
       <button class="sm" id="btnCard">📸 Card</button>
@@ -922,6 +929,7 @@ let openSpriteId = null;
 let soundOn = false;
 let savedUI = null;
 let actx = null;
+let deferredPrompt = null;
 function isMastered(k){ return owned.has(k) && (lvl[k]||1) >= MAX_LEVEL; }
 
 /* ---- persistence ---- */
@@ -1445,6 +1453,14 @@ function init(){
   // sound toggle
   updateSfxBtn();
   qs('#btnSfx').onclick=()=>{ soundOn=!soundOn; updateSfxBtn(); save(); if(soundOn) sfx('level'); };
+  // install as app
+  const iOS=/iphone|ipad|ipod/i.test(navigator.userAgent||'');
+  const standalone=window.matchMedia('(display-mode: standalone)').matches || navigator.standalone===true;
+  if(iOS && !standalone) qs('#btnInstall').style.display='';
+  qs('#btnInstall').onclick=async()=>{
+    if(deferredPrompt){ deferredPrompt.prompt(); try{await deferredPrompt.userChoice;}catch(e){} deferredPrompt=null; qs('#btnInstall').style.display='none'; }
+    else toast('On iPhone: tap Share → Add to Home Screen. On desktop: click the install icon in the address bar.');
+  };
   qs('#qGuide').addEventListener('input',renderGuide);
 
   // sprite lightbox
@@ -1552,6 +1568,11 @@ function importData(e){
     }catch(err){ toast('Couldn\'t read that file.'); } };
   r.readAsText(f); e.target.value='';
 }
+
+// ---- PWA: installable + offline ----
+if('serviceWorker' in navigator){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
+window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferredPrompt=e; const b=document.getElementById('btnInstall'); if(b) b.style.display=''; });
+window.addEventListener('appinstalled',()=>{ deferredPrompt=null; const b=document.getElementById('btnInstall'); if(b) b.style.display='none'; try{toast('Installed! Open it from your home screen.');}catch(e){} });
 
 init();
 
