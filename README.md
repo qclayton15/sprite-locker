@@ -1,6 +1,6 @@
 # 🗃️ The Sprite Locker
 
-A free **Fortnite sprite & variant tracker** that runs entirely in your browser — no download, no account, no login. Track every sprite, level them up, and chase 100% Mastered.
+A free **Fortnite sprite & variant tracker** that runs entirely in your browser — no download, no account, no login. Track every sprite, level them up, and chase 100% Mastered. **Now updated for Chapter 7 Season 4.**
 
 **▶ Use it here: https://qclayton15.github.io/sprite-locker/**
 
@@ -8,14 +8,16 @@ A free **Fortnite sprite & variant tracker** that runs entirely in your browser 
 
 ## Features
 
-- **All 25 sprites & 117 variants** with real in-game art
+- **37 sprites · 153 variants** — the 12 new **Season 4** sprites (Sonic, Tails, Shadow, Jonesy, Crown, Klombo & more) plus the 25 **Legacy** (Season 3) sprites, with real in-game art
+- **Season filter & badges** — switch between Season 4 (current) and Legacy, with upcoming sprites flagged **Coming soon**
 - **Levels & Mastery** — level each variant from 1 → 5, then 👑 master it
 - **Needs list** — see exactly which variants you're still missing or haven't mastered
 - **Trade matching** — swap a code with a friend to instantly see who can trade what (no account needed)
-- **Progress analytics** — completion %, breakdowns by rarity and variant, and mastery-effort goals
+- **Progress analytics** — completion %, breakdowns by rarity, variant and season, plus mastery-effort goals
+- **Sprite Dust costs** — how much Dust it takes to re-summon a lost sprite
 - **Shareable collection card** — generate an image of your progress to post or send
-- **Acquisition guide** — every sprite's ability and where it drops
-- **Backup code** — carry your progress between devices (phone, another browser)
+- **Install as an app** — add it to your phone or desktop home screen; works offline after the first visit
+- **Backup code** — carry your progress between devices
 
 ## How your data works
 
@@ -23,13 +25,8 @@ Your progress is **private** and saved only in *your own browser* (via local sto
 
 ## Run or host it yourself
 
-The whole app is a single self-contained `index.html` file (all images and code are embedded), so you can:
-
-- open it directly by double-clicking the file, or
-- host it for free on GitHub Pages, Netlify, Cloudflare Pages, tiiny.host, etc.
-
-To customize the sprite data or artwork, edit the `DATA` block near the top of `index.html`.
+The whole app is a single self-contained `index.html` file (all images and code are embedded), so you can open it directly or host it for free on GitHub Pages, Netlify, Cloudflare Pages, etc. To customize the sprite data or artwork, edit the `DATA` and `FILES` blocks near the top of `index.html`.
 
 ## Credits & disclaimer
 
-This is an unofficial, fan-made tool and is **not affiliated with, endorsed by, or sponsored by Epic Games**. "Fortnite" and all related sprite artwork and names are the property of Epic Games, Inc. Sprite images are sourced from the community (fortnite.gg) and sprite data (Chapter 7 Season 3) is community-compiled and may need occasional corrections. Made for fans, free to use.
+This is an unofficial, fan-made tool and is **not affiliated with, endorsed by, or sponsored by Epic Games or SEGA**. "Fortnite," "Sonic the Hedgehog," and all related artwork and names are the property of their respective owners. Sprite data (Chapter 7 Seasons 3–4) is community-compiled and may need occasional corrections. Made for fans, free to use.
