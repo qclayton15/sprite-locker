@@ -546,6 +546,17 @@
   .card.soon .thumb{filter:grayscale(.4) brightness(.85)}
   .card.soon::after{border-color:transparent rgba(255,93,177,.6) transparent transparent}
   .soon-note{font-size:12px;color:var(--mut);background:var(--bg3);border:1px dashed var(--line);border-radius:10px;padding:12px;line-height:1.45;margin-top:2px}
+
+  /* global season scope bar */
+  .scopebar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0 2px;
+    background:linear-gradient(180deg, rgba(30,33,53,.55), rgba(13,15,24,.3));border:1px solid rgba(18,182,255,.22);
+    border-radius:12px;padding:9px 14px}
+  .scopelbl{font-family:var(--font-head);text-transform:uppercase;letter-spacing:.9px;font-size:13.5px;color:var(--txt)}
+  .scopehint{color:var(--mut);font-size:12px;margin-left:auto}
+  #seasonScope button{font-family:var(--font-head);text-transform:uppercase;letter-spacing:.4px}
+  #seasonScope button[data-sc="s4"].on{color:#5cc8ff;text-shadow:0 0 8px rgba(18,182,255,.5)}
+  #seasonScope button[data-sc="legacy"].on{color:#c3c9db}
+  @media (max-width:560px){ .scopehint{display:none} }
 </style>
 </head>
 <body>
@@ -599,6 +610,16 @@
     </div>
   </section>
 
+  <div class="scopebar">
+    <span class="scopelbl">🗓 Season view</span>
+    <div class="segbar" id="seasonScope">
+      <button data-sc="" class="on">All Seasons</button>
+      <button data-sc="s4">Season 4</button>
+      <button data-sc="legacy">Legacy (S3)</button>
+    </div>
+    <span class="scopehint" id="scopeHint">Showing all seasons combined</span>
+  </div>
+
   <nav class="tabs">
     <button data-tab="checklist" class="active">📋 Checklist</button>
     <button data-tab="needs">🎯 Needs</button>
@@ -623,11 +644,6 @@
         <option value="Mythic">🟡 Mythic</option>
       </select>
       <select id="fVariant"><option value="">✨ All variants</option></select>
-      <select id="fSeason">
-        <option value="">🗓 All seasons</option>
-        <option value="s4">Season 4 (current)</option>
-        <option value="legacy">Legacy (S3)</option>
-      </select>
       <div class="segbar" id="fStatus">
         <button data-v="all" class="on"><span class="fi">▦</span>All</button>
         <button data-v="missing"><span class="fi">◌</span>Missing</button>
@@ -1001,6 +1017,7 @@ let owned = new Set();
 let lvl = {};   // "sid:vk" -> level 1..MAX_LEVEL
 let ui = {status:'all', tab:'checklist'};
 let openSpriteId = null;
+let seasonScope = '';   // '' = all seasons, 's4', or 'legacy' — applies to the whole app
 let soundOn = false;
 let savedUI = null;
 let actx = null;
@@ -1047,16 +1064,24 @@ function decodeOwned(code){
 }
 
 /* ---- stats ---- */
+// Sprites currently in view for ALL data (respects the global Season scope; excludes coming-soon).
+function scopedSprites(){ return TRACKABLE.filter(s=> !seasonScope || s.season===seasonScope); }
+function setScope(v){
+  seasonScope=v;
+  qsa('#seasonScope button').forEach(b=>b.classList.toggle('on', b.dataset.sc===v));
+  const hint=qs('#scopeHint'); if(hint) hint.textContent = v==='s4'?'Showing Chapter 7 Season 4 only' : v==='legacy'?'Showing Legacy (Season 3) only' : 'Showing all seasons combined';
+  save(); renderAll();
+}
 function computeStats(){
-  let full=0, any=0, mastered=0, fullMast=0;
-  TRACKABLE.forEach(s=>{
-    const have = s.variants.filter(v=>owned.has(key(s.id,v))).length;
-    const mv   = s.variants.filter(v=>isMastered(key(s.id,v))).length;
+  let ownedCount=0, total=0, full=0, any=0, mastered=0, fullMast=0;
+  scopedSprites().forEach(s=>{
+    let have=0, mv=0;
+    s.variants.forEach(v=>{ total++; const k=key(s.id,v); if(owned.has(k)){ownedCount++;have++;} if(isMastered(k)){mastered++;mv++;} });
     if(have===s.variants.length) full++;
     if(have>0) any++;
-    mastered+=mv; if(mv===s.variants.length) fullMast++;
+    if(mv===s.variants.length) fullMast++;
   });
-  return {ownedCount:owned.size, total:TOTAL, full, any, mastered, fullMast, sprites:TRACKABLE.length};
+  return {ownedCount, total, full, any, mastered, fullMast, sprites:scopedSprites().length};
 }
 
 /* ============================================================
@@ -1087,7 +1112,7 @@ function renderGrid(){
   const q = qs('#q').value.trim().toLowerCase();
   const fr = qs('#fRarity').value;
   const fv = qs('#fVariant').value;
-  const fseason = qs('#fSeason')?qs('#fSeason').value:'';
+  const fseason = seasonScope;
   const sort = qs('#fSort').value;
   let list = DATA.sprites.filter(s=>{
     if(fr && s.rarity!==fr) return false;
@@ -1160,7 +1185,7 @@ function renderGrid(){
 
 function renderStats(){
   // by rarity
-  const rar={}; TRACKABLE.forEach(s=>{
+  const rar={}; scopedSprites().forEach(s=>{
     rar[s.rarity]=rar[s.rarity]||{have:0,total:0};
     s.variants.forEach(v=>{rar[s.rarity].total++; if(owned.has(key(s.id,v)))rar[s.rarity].have++;});
   });
@@ -1171,7 +1196,7 @@ function renderStats(){
   // by variant
   qs('#variantBars').innerHTML = DATA.variantTypes.map(v=>{
     let have=0,total=0;
-    TRACKABLE.forEach(s=>{ if(s.variants.includes(v.key)){total++; if(owned.has(key(s.id,v.key)))have++;} });
+    scopedSprites().forEach(s=>{ if(s.variants.includes(v.key)){total++; if(owned.has(key(s.id,v.key)))have++;} });
     const pct=total?Math.round(have/total*100):0;
     return bar(v.name, have+'/'+total, pct, v.color);
   }).join('');
@@ -1186,7 +1211,7 @@ function renderStats(){
   renderDust();
   renderSeasonBox();
   // closest to complete
-  const cand = TRACKABLE.map(s=>{
+  const cand = scopedSprites().map(s=>{
     const p=spriteProgress(s); return {s,rem:p.total-p.have,have:p.have,total:p.total,p};
   }).filter(x=>x.rem>0).sort((a,b)=> a.rem-b.rem || RAR_ORDER[b.s.rarity]-RAR_ORDER[a.s.rarity]).slice(0,8);
   qs('#prioList').innerHTML = cand.length? cand.map(x=>{
@@ -1256,7 +1281,7 @@ function renderGuide(){
 /* ============================================================
    INIT + EVENTS
    ============================================================ */
-function renderAll(){ renderHero(); renderGrid(); renderStats(); renderTrade(); renderGuide(); }
+function renderAll(){ renderHero(); renderGrid(); renderStats(); renderTrade(); renderGuide(); renderNeeds(); }
 
 function refresh(){ save(); renderHero(); renderGrid(); renderStats(); renderTrade(); if(ui.tab==='needs') renderNeeds(); if(openSpriteId) renderSpriteModal(openSpriteId); }
 function isFull(sid){ return SPRITE_BY_ID[sid].variants.every(v=>isMastered(key(sid,v))); }
@@ -1337,7 +1362,7 @@ function closeSprite(){ openSpriteId=null; qs('#spriteModal').classList.remove('
 /* ---- UI persistence + tabs ---- */
 function snapshotUI(){ return { tab:ui.tab, status:ui.status, needMode:ui.needMode||'missing',
   rarity:qs('#fRarity')?qs('#fRarity').value:'', variant:qs('#fVariant')?qs('#fVariant').value:'',
-  season:qs('#fSeason')?qs('#fSeason').value:'', sort:qs('#fSort')?qs('#fSort').value:'season' }; }
+  scope:seasonScope, sort:qs('#fSort')?qs('#fSort').value:'season' }; }
 function switchTab(name){
   qsa('nav.tabs button').forEach(x=>x.classList.toggle('active', x.dataset.tab===name));
   qsa('.panel').forEach(p=>p.classList.remove('active'));
@@ -1349,7 +1374,8 @@ function applyUI(){
   if(!savedUI) return;
   if(qs('#fRarity') && savedUI.rarity!==undefined) qs('#fRarity').value=savedUI.rarity;
   if(qs('#fVariant') && savedUI.variant!==undefined) qs('#fVariant').value=savedUI.variant;
-  if(qs('#fSeason') && savedUI.season!==undefined) qs('#fSeason').value=savedUI.season;
+  if(savedUI.scope){ seasonScope=savedUI.scope; qsa('#seasonScope button').forEach(b=>b.classList.toggle('on', b.dataset.sc===seasonScope));
+    const hint=qs('#scopeHint'); if(hint) hint.textContent = seasonScope==='s4'?'Showing Chapter 7 Season 4 only' : seasonScope==='legacy'?'Showing Legacy (Season 3) only' : 'Showing all seasons combined'; }
   if(qs('#fSort') && savedUI.sort) qs('#fSort').value=savedUI.sort;
   if(savedUI.status){ ui.status=savedUI.status; qsa('#fStatus button').forEach(x=>x.classList.toggle('on', x.dataset.v===savedUI.status)); }
   if(savedUI.needMode){ ui.needMode=savedUI.needMode; qsa('#needMode button').forEach(x=>x.classList.toggle('on', x.dataset.m===savedUI.needMode)); }
@@ -1400,7 +1426,7 @@ function decodeBackup(code){
 function renderNeeds(){
   const mode = ui.needMode||'missing';
   let rows=[], totV=0, totS=0;
-  TRACKABLE.forEach(s=>{
+  scopedSprites().forEach(s=>{
     const vs = mode==='missing'
       ? s.variants.filter(v=>!owned.has(key(s.id,v)))
       : s.variants.filter(v=>{const k=key(s.id,v);return owned.has(k)&&!isMastered(k);});
@@ -1421,7 +1447,7 @@ function renderNeeds(){
 /* ---- Mastery effort ---- */
 function renderEffort(){
   let all=0, ownedUps=0, started=[];
-  TRACKABLE.forEach(s=>{
+  scopedSprites().forEach(s=>{
     let rem=0, hasOwned=false;
     s.variants.forEach(v=>{ const k=key(s.id,v); const L=owned.has(k)?(lvl[k]||1):0;
       all+=(MAX_LEVEL-L); if(owned.has(k)){ ownedUps+=(MAX_LEVEL-L); rem+=(MAX_LEVEL-L); hasOwned=true; } });
@@ -1442,7 +1468,7 @@ function renderEffort(){
 /* ---- Sprite Dust recovery cost ---- */
 function renderDust(){
   let total=0; const byR={Rare:0,Epic:0,Legendary:0,Mythic:0};
-  TRACKABLE.forEach(s=>s.variants.forEach(v=>{ if(owned.has(key(s.id,v))){ const c=dustCost(s.rarity,v); total+=c; byR[s.rarity]+=c; } }));
+  scopedSprites().forEach(s=>s.variants.forEach(v=>{ if(owned.has(key(s.id,v))){ const c=dustCost(s.rarity,v); total+=c; byR[s.rarity]+=c; } }));
   qs('#dustBox').innerHTML =
     `<div class="dust-total">💠 <b>${fmtNum(total)}</b><span>Sprite Dust to re-summon everything you own</span></div>`+
     ['Rare','Epic','Legendary','Mythic'].map(r=>
@@ -1557,8 +1583,8 @@ function init(){
   qs('#q').addEventListener('input',renderGrid);
   qs('#fRarity').addEventListener('change',()=>{renderGrid();save();});
   qs('#fVariant').addEventListener('change',()=>{renderGrid();save();});
-  qs('#fSeason').addEventListener('change',()=>{renderGrid();save();});
   qs('#fSort').addEventListener('change',()=>{renderGrid();save();});
+  qs('#seasonScope').addEventListener('click',e=>{ const b=e.target.closest('button'); if(b) setScope(b.dataset.sc); });
   qs('#fStatus').addEventListener('click',e=>{
     const b=e.target.closest('button'); if(!b)return;
     qsa('#fStatus button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
