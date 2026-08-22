@@ -13,6 +13,7 @@ A free **Fortnite sprite & variant tracker** that runs entirely in your browser 
 - **Levels & Mastery** — level each variant from 1 → 5, then 👑 master it
 - **Needs list** — see exactly which variants you're still missing or haven't mastered
 - **Trade matching** — swap a code with a friend to instantly see who can trade what (no account needed)
+- **View a friend's collection** — share a read-only view link, or save a list of people and switch between their collections anytime (read-only; never affects your own data)
 - **Progress analytics** — completion %, breakdowns by rarity, variant and season, plus mastery-effort goals
 - **Sprite Dust costs** — how much Dust it takes to re-summon a lost sprite
 - **Shareable collection card** — generate an image of your progress to post or send
