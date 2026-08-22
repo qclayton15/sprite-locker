@@ -20,6 +20,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Sprite Locker">
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <!-- After you host this, fill these in with your public URL for a rich Discord/Twitter preview:
 <meta property="og:url" content="https://qclayton15.github.io/sprite-locker">
 <meta property="og:image" content="https://qclayton15.github.io/sprite-locker/preview.png">
@@ -579,6 +582,8 @@
     background:var(--bg3);border:1px solid var(--line);border-radius:9px}
   .savedrow b{font-size:14px}
   .savedrow span{display:flex;gap:6px}
+  .cloud-badge{display:inline-block;font-family:var(--font-head);text-transform:uppercase;letter-spacing:.6px;font-size:12.5px;
+    color:#7fd3ff;background:rgba(18,182,255,.14);border:1px solid rgba(18,182,255,.35);padding:4px 10px;border-radius:20px}
 </style>
 </head>
 <body>
@@ -822,7 +827,8 @@
 </div></div>
 <div class="modal" id="viewModal"><div class="inner">
   <h3>👁 View a Collection</h3>
-  <p class="note">Share your collection read-only, or view a friend's — no account needed. Snapshots, so re-share to update.</p>
+  <div id="cloudSection" style="display:none;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--line)"></div>
+  <p class="note" id="snapNote">Or share a one-time snapshot (works with no setup):</p>
   <div id="viewShareSection">
     <label class="note" style="display:block;margin:6px 0 4px">Your view link — send this to friends:</label>
     <textarea class="codebox" id="viewMyLink" readonly></textarea>
@@ -948,6 +954,21 @@ const IMAGES = {
   folder: "",          // folder (relative to this file) holding your images — "" = same folder as this file
   ext: "webp",         // fallback extension if a file isn't in the FILES map below
   perVariant: true
+};
+/* ============================================================
+   ☁ CLOUD SYNC (optional) — live "always current" profiles.
+   Leave apiKey "" to keep the app 100% local/offline (cloud UI stays hidden).
+   To turn it on, paste your Firebase web config below (see the setup guide).
+   ============================================================ */
+const CLOUD = {
+  config: {
+    apiKey: "AIzaSyC680IlXvTKZBUmxbwsD-1TQXnJTpRxIWM",
+    authDomain: "sprite-locker-db108.firebaseapp.com",
+    projectId: "sprite-locker-db108",
+    storageBucket: "sprite-locker-db108.firebasestorage.app",
+    messagingSenderId: "699293936105",
+    appId: "1:699293936105:web:1972f16a8a721be2b64378"
+  }
 };
 // Exact image filenames from fortnite.gg, mapped to each sprite/variant.
 // (Anything not listed falls back to <id>_<variant>.<ext>, then a themed placeholder.)
@@ -1328,7 +1349,7 @@ function renderGuide(){
    ============================================================ */
 function renderAll(){ renderHero(); renderGrid(); renderStats(); renderTrade(); renderGuide(); renderNeeds(); }
 
-function refresh(){ save(); renderHero(); renderGrid(); renderStats(); renderTrade(); if(ui.tab==='needs') renderNeeds(); if(openSpriteId) renderSpriteModal(openSpriteId); }
+function refresh(){ save(); renderHero(); renderGrid(); renderStats(); renderTrade(); if(ui.tab==='needs') renderNeeds(); if(openSpriteId) renderSpriteModal(openSpriteId); schedulePublish(); }
 function isFull(sid){ return SPRITE_BY_ID[sid].variants.every(v=>isMastered(key(sid,v))); }
 function afterChange(sid, becameMastered, wasFull){
   refresh();
@@ -1599,7 +1620,7 @@ async function openCard(){ toast('Building your card…'); const url=await gener
 /* ---- view a friend's collection (read-only) ---- */
 function openView(){
   if(!readonly) qs('#viewMyLink').value = location.origin+location.pathname+'#view='+encodeURIComponent(encodeBackup());
-  renderViewsList();
+  renderViewsList(); updateCloudUI();
   qs('#viewModal').classList.add('show');
 }
 function parseViewInput(str){
@@ -1622,6 +1643,7 @@ function enterView(vOwned, vLvl, vName){
 }
 function exitView(){
   if(!readonly) return;
+  if(liveUnsub){ liveUnsub(); liveUnsub=null; }
   owned=myOwnedBackup||new Set(); lvl=myLvlBackup||{}; myOwnedBackup=myLvlBackup=null;
   readonly=false; viewingName=null;
   document.body.classList.remove('viewing');
@@ -1643,7 +1665,90 @@ function renderViewsList(){
         <button class="sm" data-viewsaved="${encodeURIComponent(v.name)}">View</button>
         <button class="sm danger" data-removeview="${encodeURIComponent(v.name)}" title="Remove">✕</button></span></div>`).join('')
     : '<div class="note" style="padding:4px 2px">No saved collections yet — paste a code below and hit Save.</div>';
-  const sel=qs('#viewSwitch'); if(sel){ sel.innerHTML='<option value="">↔ Switch…</option>'+a.map(v=>`<option value="${encodeURIComponent(v.name)}"${v.name===viewingName?' selected':''}>${v.name}</option>`).join(''); }
+  const follows=getFollows();
+  const sel=qs('#viewSwitch');
+  if(sel){ sel.innerHTML='<option value="">↔ Switch…</option>'
+    + follows.map(h=>`<option value="live:${h}">☁ @${h}</option>`).join('')
+    + a.map(v=>`<option value="save:${encodeURIComponent(v.name)}"${v.name===viewingName?' selected':''}>${v.name}</option>`).join(''); }
+}
+
+/* ============================================================
+   ☁ CLOUD SYNC — live profiles via Firebase (optional)
+   ============================================================ */
+let fdb=null, fauth=null, cloudReady=false, myUid=null, myHandle=null, autoPublish=false, liveUnsub=null, publishTimer=null;
+function cloudEnabled(){ return !!(CLOUD && CLOUD.config && CLOUD.config.apiKey); }
+function cleanHandle(h){ return (h||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,'').slice(0,24); }
+function getFollows(){ try{return JSON.parse(localStorage.getItem('spritelocker.follows'))||[];}catch(e){return [];} }
+function setFollows(a){ try{localStorage.setItem('spritelocker.follows',JSON.stringify(a));}catch(e){} }
+function saveCloudPrefs(){ try{localStorage.setItem('spritelocker.cloud',JSON.stringify({handle:myHandle,autoPublish}));}catch(e){} }
+async function initCloud(){
+  if(!cloudEnabled() || !window.firebase) return;
+  try{
+    firebase.initializeApp(CLOUD.config);
+    fauth=firebase.auth(); fdb=firebase.firestore();
+    try{ const cp=JSON.parse(localStorage.getItem('spritelocker.cloud')||'{}'); myHandle=cp.handle||null; autoPublish=!!cp.autoPublish; }catch(e){}
+    await fauth.signInAnonymously();
+    myUid=fauth.currentUser.uid; cloudReady=true;
+    updateCloudUI();
+    if(location.hash.startsWith('#p=')) viewLive(cleanHandle(location.hash.slice(3)));
+  }catch(e){ console.warn('Cloud init failed:', e); }
+}
+async function publishProfile(handle){
+  if(!cloudReady){ toast('Cloud is still connecting…'); return false; }
+  handle=cleanHandle(handle||myHandle);
+  if(!handle){ toast('Pick a profile name (letters, numbers, - or _).'); return false; }
+  try{
+    const ref=fdb.collection('profiles').doc(handle);
+    const snap=await ref.get();
+    if(snap.exists && snap.data().ownerUid!==myUid){ toast('“'+handle+'” is taken — pick another name.'); return false; }
+    await ref.set({ name:(qs('#myName').value||handle), ownerUid:myUid, code:encodeBackup(), updated:Date.now() });
+    myHandle=handle; saveCloudPrefs(); updateCloudUI();
+    toast('☁ Published as @'+handle); return true;
+  }catch(e){ console.warn(e); toast('Publish failed — check your Firebase setup.'); return false; }
+}
+function schedulePublish(){
+  if(!cloudReady || !autoPublish || !myHandle || readonly) return;
+  clearTimeout(publishTimer); publishTimer=setTimeout(()=>publishProfile(myHandle), 1500);
+}
+function followProfile(handle){
+  handle=cleanHandle(handle); if(!handle) return;
+  const f=getFollows(); if(!f.includes(handle)){ f.push(handle); setFollows(f); }
+  updateCloudUI(); renderViewsList(); viewLive(handle);
+}
+function unfollow(h){ setFollows(getFollows().filter(x=>x!==h)); updateCloudUI(); renderViewsList(); }
+function viewLive(handle){
+  handle=cleanHandle(handle);
+  if(!cloudEnabled()){ toast('This is a live link — open the cloud-enabled version to view it.'); return; }
+  if(!cloudReady){ setTimeout(()=>viewLive(handle), 800); return; }
+  if(liveUnsub){ liveUnsub(); liveUnsub=null; }
+  liveUnsub=fdb.collection('profiles').doc(handle).onSnapshot(snap=>{
+    if(!snap.exists){ toast('@'+handle+' hasn’t published a collection yet.'); return; }
+    const d=snap.data(); const r=parseViewInput(d.code||'');
+    if(r&&r.owned) enterView(r.owned, r.lvl, (d.name||handle));
+  }, err=>{ console.warn(err); toast('Couldn’t load @'+handle+'.'); });
+}
+function updateCloudUI(){
+  const sec=qs('#cloudSection'); if(!sec) return;
+  if(!cloudEnabled()){ sec.style.display='none'; return; }
+  sec.style.display='';
+  const follows=getFollows();
+  sec.innerHTML =
+   `<div class="cloud-badge">☁ Live profiles${cloudReady?' · connected':' · connecting…'}</div>
+    <label class="note" style="display:block;margin:8px 0 4px">Publish your collection — followers always see your latest:</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input id="cloudHandle" placeholder="your-name" value="${myHandle||''}" style="flex:1;min-width:120px;padding:9px 11px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);color:var(--txt)">
+      <button class="primary" id="cloudPublish">Publish</button>
+      <label class="note" style="display:flex;align-items:center;gap:5px;white-space:nowrap"><input type="checkbox" id="cloudAuto" ${autoPublish?'checked':''}> Auto-update</label>
+    </div>
+    ${myHandle?`<p class="note" style="margin:7px 0">You're live as <b style="color:#7fd3ff">@${myHandle}</b> — share <button class="sm" id="cloudCopyMine">Copy live link</button></p>`:''}
+    <label class="note" style="display:block;margin:12px 0 4px">Follow someone by their name (always shows their latest):</label>
+    <div style="display:flex;gap:8px"><input id="cloudFollow" placeholder="their-name" style="flex:1;padding:9px 11px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);color:var(--txt)"><button class="primary" id="cloudFollowBtn">Follow</button></div>
+    <div id="cloudFollows" class="savedlist" style="margin-top:8px">${follows.length?follows.map(h=>`<div class="savedrow"><b>☁ @${h}</b><span><button class="sm" data-live="${h}">View</button><button class="sm danger" data-unfollow="${h}">✕</button></span></div>`).join(''):'<div class="note" style="padding:2px">Not following anyone yet.</div>'}</div>`;
+  qs('#cloudPublish').onclick=()=>publishProfile(qs('#cloudHandle').value);
+  qs('#cloudAuto').onchange=e=>{ autoPublish=e.target.checked; saveCloudPrefs(); if(autoPublish) publishProfile(qs('#cloudHandle').value||myHandle); };
+  const cm=qs('#cloudCopyMine'); if(cm) cm.onclick=()=>copy(location.origin+location.pathname+'#p='+myHandle,'Live link copied — send it to friends!');
+  qs('#cloudFollowBtn').onclick=()=>followProfile(qs('#cloudFollow').value);
+  qs('#cloudFollows').onclick=e=>{ const v=e.target.closest('[data-live]'); if(v){viewLive(v.dataset.live);return;} const u=e.target.closest('[data-unfollow]'); if(u) unfollow(u.dataset.unfollow); };
 }
 
 function toast(msg){ const t=qs('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200); }
@@ -1728,9 +1833,13 @@ function init(){
   qs('#savedViews').addEventListener('click',e=>{
     const vb=e.target.closest('[data-viewsaved]'); if(vb){ viewSaved(decodeURIComponent(vb.dataset.viewsaved)); return; }
     const rb=e.target.closest('[data-removeview]'); if(rb){ removeView(decodeURIComponent(rb.dataset.removeview)); renderViewsList(); } });
-  qs('#viewSwitch').addEventListener('change',e=>{ if(e.target.value) viewSaved(decodeURIComponent(e.target.value)); });
+  qs('#viewSwitch').addEventListener('change',e=>{ const v=e.target.value; if(!v) return;
+    if(v.startsWith('live:')) viewLive(v.slice(5)); else if(v.startsWith('save:')) viewSaved(decodeURIComponent(v.slice(5))); });
   qs('#exitView').onclick=exitView;
-  window.addEventListener('hashchange',()=>{ if(location.hash.startsWith('#view=')){ const r=parseViewInput(location.hash); if(r&&r.owned) enterView(r.owned,r.lvl,r.name); } });
+  window.addEventListener('hashchange',()=>{
+    if(location.hash.startsWith('#view=')){ const r=parseViewInput(location.hash); if(r&&r.owned) enterView(r.owned,r.lvl,r.name); }
+    else if(location.hash.startsWith('#p=')){ viewLive(cleanHandle(location.hash.slice(3))); }
+  });
   qs('#btnShare').onclick=()=>{ const u=location.href;
     copy(u, u.startsWith('http')?'Page link copied — paste it in Discord!':'Copied the file path. Host the file online to get a link you can share.'); };
   qs('#cardClose').onclick=()=>qs('#cardModal').classList.remove('show');
@@ -1861,6 +1970,7 @@ function importData(e){
 
 // ---- PWA: installable + offline ----
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
+window.addEventListener('load',()=>{ initCloud(); });
 window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferredPrompt=e; const b=document.getElementById('btnInstall'); if(b) b.style.display=''; });
 window.addEventListener('appinstalled',()=>{ deferredPrompt=null; const b=document.getElementById('btnInstall'); if(b) b.style.display='none'; try{toast('Installed! Open it from your home screen.');}catch(e){} });
 
