@@ -557,10 +557,37 @@
   #seasonScope button[data-sc="s4"].on{color:#5cc8ff;text-shadow:0 0 8px rgba(18,182,255,.5)}
   #seasonScope button[data-sc="legacy"].on{color:#c3c9db}
   @media (max-width:560px){ .scopehint{display:none} }
+
+  /* view-a-friend (read-only) mode */
+  #viewBanner{position:sticky;top:0;z-index:40;display:flex;align-items:center;justify-content:center;gap:16px;
+    background:linear-gradient(90deg,#7c5cff,#b14bff);color:#fff;padding:10px 16px;font-size:14px;
+    box-shadow:0 6px 20px rgba(124,92,255,.45)}
+  #viewBanner b{color:#fff}
+  #viewBanner button{background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.45);color:#fff;
+    padding:5px 13px;border-radius:8px;cursor:pointer;font-weight:700;font-family:var(--font-head);text-transform:uppercase;letter-spacing:.5px}
+  #viewBanner button:hover{background:rgba(0,0,0,.45)}
+  .viewing .allbtn{display:none}
+  .viewing .crow{visibility:hidden;height:0;margin:0;overflow:hidden}
+  .viewing .vtile{cursor:default}
+  .viewing #btnSync,.viewing #btnExport,.viewing #btnImport,.viewing #btnReset,.viewing #btnSfx,.viewing #btnInstall,.viewing #btnImages,.viewing #btnShare{display:none!important}
+  .viewing #viewShareSection{display:none}
+  #viewBanner #viewSwitch{background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.45);color:#fff;
+    padding:5px 9px;border-radius:8px;font:inherit;cursor:pointer;max-width:190px}
+  #viewBanner #viewSwitch option{color:#111}
+  .savedlist{display:flex;flex-direction:column;gap:6px;max-height:190px;overflow:auto}
+  .savedrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;
+    background:var(--bg3);border:1px solid var(--line);border-radius:9px}
+  .savedrow b{font-size:14px}
+  .savedrow span{display:flex;gap:6px}
 </style>
 </head>
 <body>
 <canvas id="fx" aria-hidden="true"></canvas>
+<div id="viewBanner" style="display:none">
+  <span>👁 Viewing <b id="viewBannerName"></b>'s collection — read only</span>
+  <select id="viewSwitch" title="Switch to another saved collection"></select>
+  <button id="exitView">Exit view</button>
+</div>
 <div class="wrap">
   <header class="top">
     <div class="logo">
@@ -580,6 +607,7 @@
       <button class="sm" id="btnImages">🖼 Images</button>
       <button class="sm" id="btnSync">🔑 Backup</button>
       <button class="sm" id="btnCard">📸 Card</button>
+      <button class="sm" id="btnView">👁 View</button>
       <button class="sm" id="btnShare">🔗 Share</button>
       <button class="sm" id="btnExport">⬇ Export</button>
       <button class="sm" id="btnImport">⬆ Import</button>
@@ -791,6 +819,21 @@
   <p class="note">Paste a backup code here to restore it on this device:</p>
   <textarea class="codebox" id="restoreCode" placeholder="Paste a backup code…"></textarea>
   <div class="row"><button class="ghost" id="syncClose">Close</button><button class="primary" id="doRestore">Restore</button></div>
+</div></div>
+<div class="modal" id="viewModal"><div class="inner">
+  <h3>👁 View a Collection</h3>
+  <p class="note">Share your collection read-only, or view a friend's — no account needed. Snapshots, so re-share to update.</p>
+  <div id="viewShareSection">
+    <label class="note" style="display:block;margin:6px 0 4px">Your view link — send this to friends:</label>
+    <textarea class="codebox" id="viewMyLink" readonly></textarea>
+    <div style="display:flex;gap:8px;margin:8px 0 14px"><button class="primary" id="copyViewLink">Copy view link</button><button id="copyViewCode">Copy code only</button></div>
+  </div>
+  <label class="note" style="display:block;margin:2px 0 6px"><b style="color:var(--txt)">⭐ Saved collections</b> — view any anytime:</label>
+  <div id="savedViews" class="savedlist"></div>
+  <label class="note" style="display:block;margin:14px 0 4px">Add someone — paste their view link or code:</label>
+  <input id="viewName" placeholder="Name (optional)" style="width:100%;padding:9px 11px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);color:var(--txt);margin-bottom:8px">
+  <textarea class="codebox" id="viewTheirCode" placeholder="Paste a view link or code…"></textarea>
+  <div class="row"><button class="ghost" id="viewClose">Close</button><button id="viewSave">⭐ Save</button><button class="primary" id="viewGo">View</button></div>
 </div></div>
 <div class="modal" id="cardModal"><div class="inner wide">
   <h3>📸 Shareable Collection Card</h3>
@@ -1018,6 +1061,7 @@ let lvl = {};   // "sid:vk" -> level 1..MAX_LEVEL
 let ui = {status:'all', tab:'checklist'};
 let openSpriteId = null;
 let seasonScope = '';   // '' = all seasons, 's4', or 'legacy' — applies to the whole app
+let readonly = false, viewingName = null, myOwnedBackup = null, myLvlBackup = null;   // read-only "view a friend" mode
 let soundOn = false;
 let savedUI = null;
 let actx = null;
@@ -1035,6 +1079,7 @@ function load(){
   }catch(e){}
 }
 function save(){
+  if(readonly) return;   // never persist while viewing someone else's collection
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify({owned:[...owned], lvl, name:qs('#myName').value, ui:snapshotUI(), sound:soundOn})); }catch(e){}
 }
 function qs(s,el=document){return el.querySelector(s)}
@@ -1292,7 +1337,7 @@ function afterChange(sid, becameMastered, wasFull){
 }
 // Click cycles: not owned → Lv1 → Lv2 → … → Lv5 (Mastered) → not owned
 function cycleTile(sid,vk){
-  if(SPRITE_BY_ID[sid].comingSoon) return;
+  if(readonly || SPRITE_BY_ID[sid].comingSoon) return;
   const k=key(sid,vk), wasFull=isFull(sid); let becameMastered=false, leveled=false;
   if(!owned.has(k)){ owned.add(k); lvl[k]=1; leveled=true; }
   else { const c=lvl[k]||1; if(c<MAX_LEVEL){ lvl[k]=c+1; leveled=true; if(lvl[k]>=MAX_LEVEL) becameMastered=true; } else { owned.delete(k); delete lvl[k]; } }
@@ -1301,7 +1346,7 @@ function cycleTile(sid,vk){
 }
 // Shift-click: jump straight to Mastered, or clear if already mastered
 function masterTile(sid,vk){
-  if(SPRITE_BY_ID[sid].comingSoon) return;
+  if(readonly || SPRITE_BY_ID[sid].comingSoon) return;
   const k=key(sid,vk), wasFull=isFull(sid); let becameMastered=false;
   if(isMastered(k)){ owned.delete(k); delete lvl[k]; }
   else { owned.add(k); lvl[k]=MAX_LEVEL; becameMastered=true; }
@@ -1310,6 +1355,7 @@ function masterTile(sid,vk){
 }
 // Per-card button, progressive: Own all → Master all → Clear all
 function cardAction(sid){
+  if(readonly) return;
   const s=SPRITE_BY_ID[sid], wasFull=isFull(sid);
   const allOwned=s.variants.every(v=>owned.has(key(sid,v)));
   const allMast =s.variants.every(v=>isMastered(key(sid,v)));
@@ -1550,6 +1596,56 @@ async function generateCard(){
 function roundRect(x,px,py,w,h,r){ x.beginPath(); x.moveTo(px+r,py); x.arcTo(px+w,py,px+w,py+h,r); x.arcTo(px+w,py+h,px,py+h,r); x.arcTo(px,py+h,px,py,r); x.arcTo(px,py,px+w,py,r); x.closePath(); }
 async function openCard(){ toast('Building your card…'); const url=await generateCard(); qs('#cardImg').src=url; qs('#cardModal').classList.add('show'); }
 
+/* ---- view a friend's collection (read-only) ---- */
+function openView(){
+  if(!readonly) qs('#viewMyLink').value = location.origin+location.pathname+'#view='+encodeURIComponent(encodeBackup());
+  renderViewsList();
+  qs('#viewModal').classList.add('show');
+}
+function parseViewInput(str){
+  str=(str||'').trim();
+  const h=str.indexOf('#view='); if(h>=0) str=decodeURIComponent(str.slice(h+6));
+  let r=decodeBackup(str);                       // full code (levels + mastery)
+  if(r.error){ const o=decodeOwned(str); if(o.set){ const lv={}; o.set.forEach(k=>lv[k]=1); r={owned:o.set, lvl:lv, name:null}; } }
+  return r;
+}
+function enterView(vOwned, vLvl, vName){
+  if(!readonly){ myOwnedBackup=owned; myLvlBackup=lvl; }
+  owned=vOwned; lvl=vLvl||{}; owned.forEach(k=>{ if(!lvl[k]) lvl[k]=1; });
+  readonly=true; viewingName=(vName&&vName.trim())?vName.trim():'a friend';
+  document.body.classList.add('viewing');
+  qs('#viewBannerName').textContent=viewingName;
+  qs('#viewBanner').style.display='flex';
+  qs('#viewModal').classList.remove('show'); closeSprite();
+  renderViewsList();
+  renderAll(); window.scrollTo(0,0);
+}
+function exitView(){
+  if(!readonly) return;
+  owned=myOwnedBackup||new Set(); lvl=myLvlBackup||{}; myOwnedBackup=myLvlBackup=null;
+  readonly=false; viewingName=null;
+  document.body.classList.remove('viewing');
+  qs('#viewBanner').style.display='none';
+  try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){}
+  renderAll();
+}
+/* ---- saved collections (a little friends list, stored on this device) ---- */
+const VIEWS_KEY='spritelocker.savedviews';
+function getViews(){ try{return JSON.parse(localStorage.getItem(VIEWS_KEY))||[];}catch(e){return [];} }
+function setViews(a){ try{localStorage.setItem(VIEWS_KEY, JSON.stringify(a));}catch(e){} }
+function addView(name, code){ const a=getViews().filter(v=>v.name.toLowerCase()!==name.toLowerCase()); a.push({name, code}); setViews(a); }
+function removeView(name){ setViews(getViews().filter(v=>v.name!==name)); }
+function viewSaved(name){ const v=getViews().find(x=>x.name===name); if(!v)return; const r=parseViewInput(v.code); if(r&&r.owned) enterView(r.owned, r.lvl, v.name); else toast('Saved code for '+name+' looks invalid.'); }
+function renderViewsList(){
+  const a=getViews();
+  const list=qs('#savedViews'); if(list) list.innerHTML = a.length
+    ? a.map(v=>`<div class="savedrow"><b>${v.name}</b><span>
+        <button class="sm" data-viewsaved="${encodeURIComponent(v.name)}">View</button>
+        <button class="sm danger" data-removeview="${encodeURIComponent(v.name)}" title="Remove">✕</button></span></div>`).join('')
+    : '<div class="note" style="padding:4px 2px">No saved collections yet — paste a code below and hit Save.</div>';
+  const sel=qs('#viewSwitch'); if(sel){ sel.innerHTML='<option value="">↔ Switch…</option>'+a.map(v=>`<option value="${encodeURIComponent(v.name)}"${v.name===viewingName?' selected':''}>${v.name}</option>`).join(''); }
+}
+
 function toast(msg){ const t=qs('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200); }
 
 function confirmModal(title,msg,onOk){
@@ -1615,6 +1711,26 @@ function init(){
   };
   // share card
   qs('#btnCard').onclick=openCard;
+  // view a friend's collection
+  qs('#btnView').onclick=openView;
+  qs('#viewClose').onclick=()=>qs('#viewModal').classList.remove('show');
+  qs('#copyViewLink').onclick=()=>copy(qs('#viewMyLink').value,'View link copied — send it to a friend!');
+  qs('#copyViewCode').onclick=()=>copy(encodeBackup(),'View code copied!');
+  qs('#viewGo').onclick=()=>{ const r=parseViewInput(qs('#viewTheirCode').value);
+    if(r.error){ toast(r.error); return; }
+    const nm=(qs('#viewName').value.trim()||r.name||'a friend');
+    enterView(r.owned, r.lvl, nm); };
+  qs('#viewSave').onclick=()=>{ const raw=qs('#viewTheirCode').value.trim(); const r=parseViewInput(raw);
+    if(r.error){ toast(r.error); return; }
+    const nm=(qs('#viewName').value.trim()||r.name||'').trim();
+    if(!nm){ toast('Add a name so you can find this collection later.'); return; }
+    addView(nm, raw); renderViewsList(); qs('#viewName').value=''; qs('#viewTheirCode').value=''; toast('⭐ Saved '+nm+' — view them anytime.'); };
+  qs('#savedViews').addEventListener('click',e=>{
+    const vb=e.target.closest('[data-viewsaved]'); if(vb){ viewSaved(decodeURIComponent(vb.dataset.viewsaved)); return; }
+    const rb=e.target.closest('[data-removeview]'); if(rb){ removeView(decodeURIComponent(rb.dataset.removeview)); renderViewsList(); } });
+  qs('#viewSwitch').addEventListener('change',e=>{ if(e.target.value) viewSaved(decodeURIComponent(e.target.value)); });
+  qs('#exitView').onclick=exitView;
+  window.addEventListener('hashchange',()=>{ if(location.hash.startsWith('#view=')){ const r=parseViewInput(location.hash); if(r&&r.owned) enterView(r.owned,r.lvl,r.name); } });
   qs('#btnShare').onclick=()=>{ const u=location.href;
     copy(u, u.startsWith('http')?'Page link copied — paste it in Discord!':'Copied the file path. Host the file online to get a link you can share.'); };
   qs('#cardClose').onclick=()=>qs('#cardModal').classList.remove('show');
@@ -1678,9 +1794,14 @@ function init(){
     if(e.key==='/' && document.activeElement.tagName!=='INPUT' && document.activeElement.tagName!=='TEXTAREA'){
       e.preventDefault(); (ui.tab==='guide'?qs('#qGuide'):qs('#q')).focus();
     }
-    if(e.key==='Escape'){ qs('#modal').classList.remove('show'); qs('#imgModal').classList.remove('show'); closeSprite(); }
+    if(e.key==='Escape'){ qs('#modal').classList.remove('show'); qs('#imgModal').classList.remove('show'); qs('#viewModal').classList.remove('show'); closeSprite(); }
   });
 
+  // open a friend's collection in read-only view mode
+  if(location.hash.startsWith('#view=')){
+    const r=parseViewInput(location.hash);
+    if(r && r.owned) enterView(r.owned, r.lvl, r.name);
+  }
   // import from share link
   if(location.hash.startsWith('#c=')){
     const code=decodeURIComponent(location.hash.slice(3));
