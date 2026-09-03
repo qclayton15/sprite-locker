@@ -8,7 +8,8 @@ A free **Fortnite sprite & variant tracker** that runs entirely in your browser 
 
 ## Features
 
-- **37 sprites · 153 variants** — the 12 new **Season 4** sprites (Sonic, Tails, Shadow, Jonesy, Crown, Klombo & more) plus the 25 **Legacy** (Season 3) sprites, with real in-game art
+- **41 sprites · 180 variants** — the Season 4 roster (Sonic, Tails, Shadow, Jonesy, Crown, Klombo, plus the September additions **Onigiri, Overshield, Mega Man** and the now-live **X‑Ray**) alongside the 25 **Legacy** (Season 3) sprites, with real in-game art
+- **New Loot Hacker variant** — the blue digital variant added across the Season 4 roster, tracked alongside Normal, Gold, and Cheat Master
 - **Season filter & badges** — switch between Season 4 (current) and Legacy, with upcoming sprites flagged **Coming soon**
 - **Levels & Mastery** — level each variant from 1 → 5, then 👑 master it
 - **Needs list** — see exactly which variants you're still missing or haven't mastered
